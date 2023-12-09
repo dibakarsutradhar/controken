@@ -1,10 +1,10 @@
 const express = require('express');
-const { getTx } = require('../controllers/allowanceControllers');
+const { getevents } = require('../controllers/allowanceControllers');
 
 // init express route
 const router = express.Router();
 
 // allowance routes
-router.get('/gettx', getTx);
+router.get('/getevents', getevents);
 
 module.exports = router;

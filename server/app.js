@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 
@@ -5,9 +6,13 @@ const cors = require('cors');
 const { allowOrigins } = require('./utils/allowOrigins');
 const GlobalErrorController = require('./utils/globalErrorController');
 const AllowanceRoutes = require('./routes/allowanceRoutes');
+const { init } = require('@airstack/node');
 
 // init express app
 const app = express();
+
+const AIRSTACK_API = process.env.AIRSTACK_API_KEY;
+init(AIRSTACK_API);
 
 // set cors
 app.use(cors({ origin: allowOrigins }));

@@ -1,73 +1,70 @@
-const axios = require('axios');
 const { getWeb3connection } = require('../ethereum/web3connection');
 const catchAsync = require('../utils/catchAsync');
+const bigIntToString = require('../utils/bigIntToString');
+const { fetchQuery } = require('@airstack/node');
+const {
+	GET_TOKEN_TRANSFERS_FROM_ADDRESS,
+} = require('../queries/getTokenTransfersFromAddress');
+const { erc20abi } = require('../utils/erc20abi');
+const getTransactionReceipts = require('../ethereum/getTxReceipts');
+const getApprovalEvents = require('../ethereum/getApprovalEvents');
 
 const web3 = getWeb3connection();
 
-/** @GET METHODS */
+exports.getevents = catchAsync(async (req, res, next) => {
+	try {
+		let approvalEventsData = [];
 
-/**
- * 1. Get all the transactions of an address
- * 2. Get all the internal tx of an address
- * 3. Get all the tx logs of an address
- * 4. Detact all the events with "Approve" && "ApproveAll"
- * 5.
- */
+		const { data, error } = await fetchQuery(
+			GET_TOKEN_TRANSFERS_FROM_ADDRESS(req.body.address)
+		);
 
-// Replace YourApiKeyToken with your actual API key
-const POLYGONSCAN_API = process.env.POLYGONSCAN_API_KEY;
-const EVENTS = ['Approve', 'ApproveForAll']; // Events to search for
+		if (error) console.log('fetching error ', error);
 
-// Get all the tx for an user
-exports.getTx = catchAsync(async (req, res) => {
-	if (!req.body.address) {
-		res.status(400).json({ message: 'User wallet address is required' });
-	}
+		if (data) {
+			let lastTxHashes = data.Ethereum.TokenTransfer.map(
+				(transfer) => transfer.token.lastTransferHash
+			);
 
-	const address = req.body.address;
-	console.log(typeof address);
+			const contract = new web3.eth.Contract(erc20abi);
 
-	let page = 1;
-	let maxpage = 10;
-	let logs = [];
-	while (page <= maxpage) {
-		try {
-			const response = await axios.get(`https://api.polygonscan.com/api
-				?module=account
-				&action=txlist
-				&address=${address}
-				&startblock=0
-				&endblock=99999999
-				&page=${page}
-				&offset=10
-				&sort=asc
-				&apikey=${POLYGONSCAN_API}`);
+			let txReceipts = await getTransactionReceipts(web3, lastTxHashes);
 
-			if (response.data.status !== '1') {
-				console.log(response.data);
-				return res.status(500).json({
-					message: 'Error fetching datas',
-					error: response.data.message,
+			for (let txReceipt of txReceipts) {
+				txReceipt.logs.forEach((log) => {
+					const approvalEvents = getApprovalEvents(web3, contract, log);
+
+					approvalEvents.forEach((event) => {
+						const decodedLog = web3.eth.abi.decodeLog(
+							event.inputs,
+							log.data,
+							log.topics.slice(1)
+						);
+
+						let eventData = {
+							spender: decodedLog.spender,
+							value: web3.utils.fromWei(decodedLog.value, 'ether'),
+							// tokenName: correspondingTx
+							// 	? correspondingTx.tokenName
+							// 	: undefined,
+							// tokenSymbol: correspondingTx
+							// 	? correspondingTx.tokenSymbol
+							// 	: undefined,
+						};
+
+						approvalEventsData.push(eventData);
+					});
 				});
 			}
-
-			logs = logs.concat(response.data.result);
-			console.log(page);
-			page++;
-		} catch (error) {
-			return res
-				.status(500)
-				.json({ message: 'Error fetching logs', error: error.toString() });
 		}
+
+		res.status(200).json({
+			message: 'success',
+			// transactions: data.Ethereum,
+			approval: approvalEventsData,
+		});
+	} catch (e) {
+		console.log(e);
+		return res.status(500).json({ message: 'Error fetching logs', error: e });
 	}
-
-	// Filter logs by event name
-	// const filteredLogs = response.data.result.filter((log) => {
-	// 	const topics = log.topics.slice(2); // Skip first two topics
-	// 	return EVENTS.some((event) => topics.includes(web3.utils.sha3(event)));
-	// });
-
-	res.status(200).json({
-		logs: logs,
-	});
 });
